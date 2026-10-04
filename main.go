@@ -42,12 +42,21 @@ func main() {
 			log.Fatal(formErr)
 		}
 
+		var response Response
 		var objectFiles []ObjectFile
+
 		for _, headers := range form.File {
 			for _, header := range headers {
+				response.Filename = header.Filename
+				response.ArchiveSize = float64(header.Size)
+
 				file, _ := header.Open()
 				r, _ := zip.NewReader(file, header.Size)
+				// TODO: Check for directories
 				for _, f := range r.File {
+					response.TotalSize += float64(f.UncompressedSize64)
+					response.TotalFiles += 1
+
 					i := strings.Index(f.Name, ".")
 					objectFile := ObjectFile{
 						FilePath: f.Name,
@@ -59,8 +68,9 @@ func main() {
 				file.Close()
 			}
 		}
+		response.Files = objectFiles
 
-		jsonFiles, jsonErr := json.Marshal(objectFiles)
+		jsonFiles, jsonErr := json.Marshal(response)
 		if jsonErr == nil {
 			w.Write(jsonFiles)
 		}
