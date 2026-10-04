@@ -2,26 +2,26 @@ package main
 
 import (
 	"archive/zip"
-	"strings"
-	// "encoding/json"
+	"encoding/json"
 	"fmt"
 	"log"
 	"mime"
 	"net/http"
+	"strings"
 )
 
 type ObjectFile struct {
-	FilePath string
-	Size     float64
-	Mimetype string
+	FilePath string  `json:"file_path"`
+	Size     float64 `json:"size"`
+	Mimetype string  `json:"mimetype"`
 }
 
 type Response struct {
-	Filename    string
-	ArchiveSize float64
-	TotalSize   float64
-	TotalFiles  float64
-	Files       []ObjectFile
+	Filename    string       `json:"filename"`
+	ArchiveSize float64      `json:"archive_size"`
+	TotalSize   float64      `json:"total_size"`
+	TotalFiles  float64      `json:"total_files"`
+	Files       []ObjectFile `json:"files"`
 }
 
 func main() {
@@ -60,7 +60,10 @@ func main() {
 			}
 		}
 
-		fmt.Println(objectFiles)
+		jsonFiles, jsonErr := json.Marshal(objectFiles)
+		if jsonErr == nil {
+			w.Write(jsonFiles)
+		}
 	})
 
 	http.ListenAndServe(":80", nil)
