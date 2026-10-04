@@ -2,16 +2,34 @@ package main
 
 import (
 	"archive/zip"
+	"strings"
+	// "encoding/json"
 	"fmt"
-	"io"
 	"log"
+	"mime"
 	"net/http"
-	"os"
 )
 
+type ObjectFile struct {
+	FilePath string
+	Size     float64
+	Mimetype string
+}
+
+type Response struct {
+	Filename    string
+	ArchiveSize float64
+	TotalSize   float64
+	TotalFiles  float64
+	Files       []ObjectFile
+}
+
 func main() {
-	// route 1
 	http.HandleFunc("/api/archive/information", func(w http.ResponseWriter, r *http.Request) {
+		// multipart/form-data
+		// section name: file
+		// if not archive/zip: return error
+
 		fmt.Println("Received request")
 
 		reader, readerErr := r.MultipartReader()
@@ -24,23 +42,25 @@ func main() {
 			log.Fatal(formErr)
 		}
 
+		var objectFiles []ObjectFile
 		for _, headers := range form.File {
 			for _, header := range headers {
 				file, _ := header.Open()
-				fmt.Println(file)
 				r, _ := zip.NewReader(file, header.Size)
 				for _, f := range r.File {
-					fmt.Printf("Contents of: %s:\n", f.Name)
-					rc, err := f.Open()
-					if err != nil {
-						log.Fatal(err)
+					i := strings.Index(f.Name, ".")
+					objectFile := ObjectFile{
+						FilePath: f.Name,
+						Size:     float64(f.UncompressedSize64),
+						Mimetype: mime.TypeByExtension(strings.ToLower(f.Name[i:])),
 					}
-					_, _ = io.CopyN(os.Stdout, rc, 68)
-					rc.Close()
-					fmt.Println()
+					objectFiles = append(objectFiles, objectFile)
 				}
+				file.Close()
 			}
 		}
+
+		fmt.Println(objectFiles)
 	})
 
 	http.ListenAndServe(":80", nil)
