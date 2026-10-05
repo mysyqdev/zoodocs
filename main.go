@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"encoding/json"
-	"fmt"
 	"log"
 	"mime"
 	"net/http"
@@ -30,14 +29,12 @@ func main() {
 		// section name: file
 		// if not archive/zip: return error
 
-		fmt.Println("Received request")
-
 		reader, readerErr := r.MultipartReader()
 		if readerErr != nil {
 			log.Fatal(readerErr)
 		}
 
-		form, formErr := reader.ReadForm(1000)
+		form, formErr := reader.ReadForm(1000) // why 1000?
 		if formErr != nil {
 			log.Fatal(formErr)
 		}
@@ -52,16 +49,31 @@ func main() {
 
 				file, _ := header.Open()
 				r, _ := zip.NewReader(file, header.Size)
-				// TODO: Check for directories
+
 				for _, f := range r.File {
+					if f.FileInfo().IsDir() {
+						continue
+					}
+
 					response.TotalSize += float64(f.UncompressedSize64)
 					response.TotalFiles += 1
 
 					i := strings.Index(f.Name, ".")
+					var mimetype string
+					if i == -1 {
+						// -1 means that no dot was found
+						// in that case we assume that the file is binary
+						// and assign a mimetype as for the
+						// https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types
+						mimetype = "application/octet-stream"
+					} else {
+						mimetype = mime.TypeByExtension(strings.ToLower(f.Name[i:]))
+					}
+
 					objectFile := ObjectFile{
 						FilePath: f.Name,
 						Size:     float64(f.UncompressedSize64),
-						Mimetype: mime.TypeByExtension(strings.ToLower(f.Name[i:])),
+						Mimetype: mimetype,
 					}
 					objectFiles = append(objectFiles, objectFile)
 				}
