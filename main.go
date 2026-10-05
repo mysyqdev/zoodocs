@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"encoding/json"
-	"log"
 	"mime"
 	"net/http"
 	"strings"
@@ -25,63 +24,80 @@ type Response struct {
 
 func main() {
 	http.HandleFunc("/api/archive/information", func(w http.ResponseWriter, r *http.Request) {
-		// multipart/form-data
-		// section name: file
-		// if not archive/zip: return error
-
 		reader, readerErr := r.MultipartReader()
 		if readerErr != nil {
-			log.Fatal(readerErr)
+			// wrong content-type of a request
+			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 
 		form, formErr := reader.ReadForm(1000) // why 1000?
 		if formErr != nil {
-			log.Fatal(formErr)
+			// could not fit the non-file parts in memory
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
 		}
 
-		var response Response
+		// only one file is required
+		if len(form.File) != 1 {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		header := form.File["file"][0]
+		if header.Header.Get("Content-Type") != "application/zip" {
+			w.WriteHeader(http.StatusUnsupportedMediaType)
+			return
+		}
+
+		file, fileError := header.Open()
+		if fileError != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer file.Close()
+
+		zr, zrErr := zip.NewReader(file, header.Size)
+		if zrErr != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		response := new(Response{
+			Filename:    header.Filename,
+			ArchiveSize: float64(header.Size),
+		})
 		var objectFiles []ObjectFile
 
-		for _, headers := range form.File {
-			for _, header := range headers {
-				response.Filename = header.Filename
-				response.ArchiveSize = float64(header.Size)
-
-				file, _ := header.Open()
-				r, _ := zip.NewReader(file, header.Size)
-
-				for _, f := range r.File {
-					if f.FileInfo().IsDir() {
-						continue
-					}
-
-					response.TotalSize += float64(f.UncompressedSize64)
-					response.TotalFiles += 1
-
-					i := strings.Index(f.Name, ".")
-					var mimetype string
-					if i == -1 {
-						// -1 means that no dot was found
-						// in that case we assume that the file is binary
-						// and assign a mimetype as for the
-						// https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types
-						mimetype = "application/octet-stream"
-					} else {
-						mimetype = mime.TypeByExtension(strings.ToLower(f.Name[i:]))
-					}
-
-					objectFile := ObjectFile{
-						FilePath: f.Name,
-						Size:     float64(f.UncompressedSize64),
-						Mimetype: mimetype,
-					}
-					objectFiles = append(objectFiles, objectFile)
-				}
-				file.Close()
+		for _, f := range zr.File {
+			if f.FileInfo().IsDir() {
+				continue
 			}
-		}
-		response.Files = objectFiles
 
+			response.TotalSize += float64(f.UncompressedSize64)
+			response.TotalFiles += 1
+
+			i := strings.Index(f.Name, ".")
+			var mimetype string
+			if i == -1 {
+				// -1 means that no dot was found
+				// in that case we assume that the file is binary
+				// and assign a mimetype as for the
+				// https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types
+				mimetype = "application/octet-stream"
+			} else {
+				mimetype = mime.TypeByExtension(strings.ToLower(f.Name[i:]))
+			}
+
+			objectFile := ObjectFile{
+				FilePath: f.Name,
+				Size:     float64(f.UncompressedSize64),
+				Mimetype: mimetype,
+			}
+			objectFiles = append(objectFiles, objectFile)
+		}
+
+		response.Files = objectFiles
 		jsonFiles, jsonErr := json.Marshal(response)
 		if jsonErr == nil {
 			w.Write(jsonFiles)
