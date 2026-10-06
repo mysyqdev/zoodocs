@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"encoding/json"
+	"io"
 	"mime"
 	"net/http"
 	"strings"
@@ -22,7 +23,59 @@ type Response struct {
 	Files       []ObjectFile `json:"files"`
 }
 
+func getSupportedMediaTypes() []string {
+	return []string{
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/xml",
+		"image/jpeg",
+		"image/png",
+	}
+}
+
 func main() {
+	http.HandleFunc("/api/archive/files", func(w http.ResponseWriter, r *http.Request) {
+		reader, readerErr := r.MultipartReader()
+		if readerErr != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		form, formErr := reader.ReadForm(1000) // why 1000?
+		if formErr != nil {
+			// could not fit the non-file parts in memory
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/zip")
+		zw := zip.NewWriter(w)
+		defer zw.Close()
+
+		for _, headers := range form.File {
+			for _, header := range headers {
+				f, fErr := header.Open()
+				if fErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				defer f.Close()
+
+				// TODO: Check for MIME type
+				zf, zfErr := zw.Create(header.Filename)
+				if zfErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+
+				_, cErr := io.Copy(zf, f)
+				if cErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+			}
+		}
+	})
+
 	http.HandleFunc("/api/archive/information", func(w http.ResponseWriter, r *http.Request) {
 		reader, readerErr := r.MultipartReader()
 		if readerErr != nil {
