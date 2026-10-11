@@ -4,13 +4,15 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"fmt"
-	"github.com/wneessen/go-mail"
 	"io"
 	"log"
 	"mime"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
+
+	"github.com/wneessen/go-mail"
 )
 
 type ObjectFile struct {
@@ -27,22 +29,20 @@ type Response struct {
 	Files       []ObjectFile `json:"files"`
 }
 
-func getSupportedMediaTypes() []string {
-	return []string{
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		"application/xml",
-		"image/jpeg",
-		"image/png",
-	}
+const (
+	docx string = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	xml  string = "application/xml"
+	jpeg string = "image/jpeg"
+	png  string = "image/png"
+	pdf  string = "application/pdf"
+)
+
+func getMediaTypes() []string {
+	return []string{docx, xml, jpeg, png}
 }
 
-func checkContentType(mime string) bool {
-	// FIX: Better to check from a list of strings
-	if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || mime == "application/pdf" {
-		return true
-	}
-
-	return false
+func getContentTypes() []string {
+	return []string{docx, pdf}
 }
 
 func processMail(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,10 @@ func processMail(w http.ResponseWriter, r *http.Request) {
 	contentType := fileHeader.Header.Get("Content-Type")
 	i := strings.Index(fileHeader.Filename, ".")
 	mimetype := mime.TypeByExtension(strings.ToLower(fileHeader.Filename[i:]))
-	if !checkContentType(contentType) || !checkContentType(mimetype) {
+
+	isContentTypeValid := slices.Contains(getContentTypes(), contentType)
+	isFileTypeValid := slices.Contains(getContentTypes(), mimetype)
+	if !isContentTypeValid || !isFileTypeValid {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Println("Content-Type is wrong")
 		return
@@ -151,7 +154,17 @@ func archiveFiles(w http.ResponseWriter, r *http.Request) {
 			}
 			defer f.Close()
 
-			// TODO: Check for MIME type
+			contentType := header.Header.Get("Content-Type")
+			isContentTypeValid := slices.Contains(getMediaTypes(), contentType)
+			i := strings.Index(header.Filename, ".")
+			mimetype := mime.TypeByExtension(strings.ToLower(header.Filename[i:]))
+			isFileTypeValid := slices.Contains(getMediaTypes(), mimetype)
+			if !isContentTypeValid || !isFileTypeValid {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Println("One of the files is of unsupported format")
+				return
+			}
+
 			zf, zfErr := zw.Create(header.Filename)
 			if zfErr != nil {
 				w.WriteHeader(http.StatusInternalServerError)
