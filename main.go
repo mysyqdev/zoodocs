@@ -3,11 +3,12 @@ package main
 import (
 	"archive/zip"
 	"encoding/json"
+	"fmt"
+	"github.com/wneessen/go-mail"
 	"io"
 	"log"
 	"mime"
 	"net/http"
-	"net/smtp"
 	"os"
 	"strings"
 )
@@ -66,18 +67,20 @@ func processMail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// get file from "file" section
-	// fileHeader := form.File["file"][0]
-	// contentType := fileHeader.Header.Get("Content-Type")
-	// if !checkContentType(contentType) {
-	// 	w.WriteHeader(http.StatusBadRequest)
-	// 	return
-	// }
-	//
-	// file, fileErr := fileHeader.Open()
-	// if fileErr != nil {
-	// 	w.WriteHeader(http.StatusInternalServerError)
-	// 	return
-	// }
+	fileHeader := form.File["file"][0]
+	contentType := fileHeader.Header.Get("Content-Type")
+	if !checkContentType(contentType) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	file, fileErr := fileHeader.Open()
+	if fileErr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Println("File error")
+		return
+	}
+	defer file.Close()
 
 	// parse .env file
 	data, readErr := os.ReadFile(".env")
@@ -90,19 +93,33 @@ func processMail(w http.ResponseWriter, r *http.Request) {
 		os.Setenv(terms[0], terms[1])
 	}
 
-	// send it to emails in "emails" section
-	emails := strings.Split(form.Value["emails"][0], ",")
-	var (
-		from       = os.Getenv("EMAIL_FROM")
-		msg        = []byte("Salem Alem")
-		recipients = emails
-	)
-	hostname := "smtp.gmail.com"
-	auth := smtp.PlainAuth("", from, os.Getenv("GMAIL_PASSWORD"), hostname)
+	from := os.Getenv("EMAIL_FROM")
+	recipients := strings.Split(form.Value["emails"][0], ",")
 
-	err := smtp.SendMail(hostname+":587", auth, from, recipients, msg)
+	message := mail.NewMsg()
+	if err := message.From(from); err != nil {
+		log.Fatalf("failed to set From address: %s", err)
+	}
+	if err := message.To(recipients...); err != nil {
+		log.Fatalf("failed to set To address: %s", err)
+	}
+	message.Subject("Files from Zoodocs💚")
+	if err := message.AttachReader(fileHeader.Filename, file); err != nil {
+		log.Fatalf("Failed to attach the file: %s", err)
+	}
+
+	client, err := mail.NewClient(
+		"smtp.gmail.com",
+		mail.WithTLSPortPolicy(mail.TLSMandatory),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+		mail.WithUsername(from),
+		mail.WithPassword(os.Getenv("GMAIL_PASSWORD")),
+	)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to create mail client: %s", err)
+	}
+	if err := client.DialAndSend(message); err != nil {
+		log.Fatalf("failed to send mail: %s", err)
 	}
 }
 
