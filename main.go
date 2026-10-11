@@ -46,8 +46,6 @@ func checkContentType(mime string) bool {
 }
 
 func processMail(w http.ResponseWriter, r *http.Request) {
-	// TODO: supports only docx and pdf
-
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -69,8 +67,11 @@ func processMail(w http.ResponseWriter, r *http.Request) {
 	// get file from "file" section
 	fileHeader := form.File["file"][0]
 	contentType := fileHeader.Header.Get("Content-Type")
-	if !checkContentType(contentType) {
+	i := strings.Index(fileHeader.Filename, ".")
+	mimetype := mime.TypeByExtension(strings.ToLower(fileHeader.Filename[i:]))
+	if !checkContentType(contentType) || !checkContentType(mimetype) {
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Println("Content-Type is wrong")
 		return
 	}
 
