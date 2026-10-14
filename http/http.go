@@ -1,48 +1,34 @@
-package main
+package http
 
 import (
 	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"github.com/wneessen/go-mail"
 	"io"
 	"log"
 	"mime"
+	"mysyqdev/zoodocs"
 	"net/http"
 	"os"
 	"slices"
 	"strings"
-
-	"github.com/wneessen/go-mail"
 )
 
-type ObjectFile struct {
-	FilePath string  `json:"file_path"`
-	Size     float64 `json:"size"`
-	Mimetype string  `json:"mimetype"`
-}
+func Run() {
+	http.HandleFunc("/api/archive/information", parseArchive)
+	http.HandleFunc("/api/archive/files", archiveFiles)
+	http.HandleFunc("/api/mail/file", processMail)
 
-type Response struct {
-	Filename    string       `json:"filename"`
-	ArchiveSize float64      `json:"archive_size"`
-	TotalSize   float64      `json:"total_size"`
-	TotalFiles  float64      `json:"total_files"`
-	Files       []ObjectFile `json:"files"`
+	http.ListenAndServe(":80", nil)
 }
-
-const (
-	docx string = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	xml  string = "application/xml"
-	jpeg string = "image/jpeg"
-	png  string = "image/png"
-	pdf  string = "application/pdf"
-)
 
 func getMediaTypes() []string {
-	return []string{docx, xml, jpeg, png}
+	return []string{zoodocs.Docx, zoodocs.Xml, zoodocs.Jpeg, zoodocs.Png}
 }
 
 func getContentTypes() []string {
-	return []string{docx, pdf}
+	return []string{zoodocs.Docx, zoodocs.Pdf}
 }
 
 func processMail(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +147,8 @@ func archiveFiles(w http.ResponseWriter, r *http.Request) {
 			isFileTypeValid := slices.Contains(getMediaTypes(), mimetype)
 			if !isContentTypeValid || !isFileTypeValid {
 				w.WriteHeader(http.StatusBadRequest)
+				// TODO: Parse all files, remember incorrect ones
+				// and list them in the response
 				fmt.Println("One of the files is of unsupported format")
 				return
 			}
@@ -220,11 +208,11 @@ func parseArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := new(Response{
+	response := new(zoodocs.Archive{
 		Filename:    header.Filename,
 		ArchiveSize: float64(header.Size),
 	})
-	var objectFiles []ObjectFile
+	var objectFiles []zoodocs.Document
 
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
@@ -246,7 +234,7 @@ func parseArchive(w http.ResponseWriter, r *http.Request) {
 			mimetype = mime.TypeByExtension(strings.ToLower(f.Name[i:]))
 		}
 
-		objectFile := ObjectFile{
+		objectFile := zoodocs.Document{
 			FilePath: f.Name,
 			Size:     float64(f.UncompressedSize64),
 			Mimetype: mimetype,
@@ -259,12 +247,4 @@ func parseArchive(w http.ResponseWriter, r *http.Request) {
 	if jsonErr == nil {
 		w.Write(jsonFiles)
 	}
-}
-
-func main() {
-	http.HandleFunc("/api/archive/information", parseArchive)
-	http.HandleFunc("/api/archive/files", archiveFiles)
-	http.HandleFunc("/api/mail/file", processMail)
-
-	http.ListenAndServe(":80", nil)
 }
