@@ -16,7 +16,7 @@ import (
 )
 
 func Run() {
-	http.HandleFunc("/api/archive/information", parseArchive)
+	http.HandleFunc("/api/archive/information", ParseArchive)
 	http.HandleFunc("/api/archive/files", archiveFiles)
 	http.HandleFunc("/api/mail/file", processMail)
 
@@ -168,7 +168,7 @@ func archiveFiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func parseArchive(w http.ResponseWriter, r *http.Request) {
+func ParseArchive(w http.ResponseWriter, r *http.Request) {
 	reader, readerErr := r.MultipartReader()
 	if readerErr != nil {
 		// wrong content-type of a request
@@ -189,6 +189,7 @@ func parseArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FIX: could fail if request is of wrong format
 	header := form.File["file"][0]
 	if header.Header.Get("Content-Type") != "application/zip" {
 		w.WriteHeader(http.StatusUnsupportedMediaType)
@@ -222,22 +223,10 @@ func parseArchive(w http.ResponseWriter, r *http.Request) {
 		response.TotalSize += float64(f.UncompressedSize64)
 		response.TotalFiles += 1
 
-		i := strings.Index(f.Name, ".")
-		var mimetype string
-		if i == -1 {
-			// -1 means that no dot was found
-			// in that case we assume that the file is binary
-			// and assign a mimetype as for the
-			// https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types
-			mimetype = "application/octet-stream"
-		} else {
-			mimetype = mime.TypeByExtension(strings.ToLower(f.Name[i:]))
-		}
-
 		objectFile := zoodocs.Document{
 			FilePath: f.Name,
 			Size:     float64(f.UncompressedSize64),
-			Mimetype: mimetype,
+			Mimetype: getMimeType(f.Name),
 		}
 		objectFiles = append(objectFiles, objectFile)
 	}
@@ -246,5 +235,18 @@ func parseArchive(w http.ResponseWriter, r *http.Request) {
 	jsonFiles, jsonErr := json.Marshal(response)
 	if jsonErr == nil {
 		w.Write(jsonFiles)
+	}
+}
+
+func getMimeType(fileName string) string {
+	i := strings.Index(fileName, ".")
+	if i == -1 {
+		// -1 means that no dot was found
+		// in that case we assume that the file is binary
+		// and assign a mimetype as for the
+		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types
+		return "application/octet-stream"
+	} else {
+		return mime.TypeByExtension(strings.ToLower(fileName[i:]))
 	}
 }
