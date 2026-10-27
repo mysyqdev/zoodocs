@@ -1,5 +1,5 @@
 # Zoodocs
-Take home assignment for (Doodocs internship)[https://github.com/doodocs/doodocs-days/blob/main/backend/README.md]
+Take home assignment for [Doodocs internship](https://github.com/doodocs/doodocs-days/blob/main/backend/README.md)
 
 ## How to run
 1. Clone this repo
